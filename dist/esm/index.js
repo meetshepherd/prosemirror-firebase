@@ -12,6 +12,20 @@ LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
 OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ***************************************************************************** */
+/* global Reflect, Promise */
+
+var extendStatics = function(d, b) {
+    extendStatics = Object.setPrototypeOf ||
+        ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
+        function (d, b) { for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p]; };
+    return extendStatics(d, b);
+};
+
+function __extends(d, b) {
+    extendStatics(d, b);
+    function __() { this.constructor = d; }
+    d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+}
 
 var __assign = function() {
     __assign = Object.assign || function __assign(t) {
@@ -72,7 +86,13 @@ var _a = require('prosemirror-compress'), compressStepsLossy = _a.compressStepsL
 var TIMESTAMP = { '.sv': 'timestamp' };
 var FirebaseEditor = /** @class */ (function () {
     function FirebaseEditor(_a) {
-        var firebaseRef = _a.firebaseRef, stateConfig = _a.stateConfig, constructView = _a.view, _b = _a.clientID, selfClientID = _b === void 0 ? firebaseRef.push().key : _b, _c = _a.progress, progress = _c === void 0 ? function () { } : _c;
+        var firebaseRef = _a.firebaseRef, stateConfig = _a.stateConfig, constructView = _a.view, _b = _a.clientID, selfClientID = _b === void 0 ? firebaseRef.push().key : _b, _c = _a.progress, progress = _c === void 0 ? function (level) { } : _c, _d = _a.stateLimit, stateLimit = _d === void 0 ? -1 : _d;
+        this.stateLimit = stateLimit >= 0 ? stateLimit : -1;
+        this.selections = {}; // Property 'selections' has no initializer and is not definitely assigned in the constructor.ts(2564)
+        this.construct(firebaseRef, stateConfig, constructView, selfClientID, progress);
+    }
+    FirebaseEditor.prototype.construct = function (firebaseRef, stateConfig, constructView, selfClientID, progress) {
+        if (progress === void 0) { progress = function (level) { }; }
         progress(0 / 2);
         // eslint-disable-next-line
         var this_ = this;
@@ -206,7 +226,7 @@ var FirebaseEditor = /** @class */ (function () {
             then: { value: constructEditor.then.bind(constructEditor) },
             catch: { value: constructEditor.catch.bind(constructEditor) },
         });
-    }
+    };
     FirebaseEditor.prototype.destroy = function () {
         return __awaiter(this, void 0, void 0, function () {
             var _this = this;
@@ -227,4 +247,121 @@ var FirebaseEditor = /** @class */ (function () {
         throw new Error('Method not implemented.');
     };
     return FirebaseEditor;
-}());export{FirebaseEditor};//# sourceMappingURL=index.js.map
+}());
+var StatePreviewEditor = /** @class */ (function (_super) {
+    __extends(StatePreviewEditor, _super);
+    function StatePreviewEditor(params) {
+        var _this = _super.call(this, params) || this;
+        _this.activeState = -1;
+        return _this;
+    }
+    StatePreviewEditor.prototype.construct = function (firebaseRef, stateConfig, constructView, selfClientID, progress) {
+        var _this = this;
+        progress(0 / 2);
+        var currentState = this.stateLimit;
+        var setActiveState = function (state) { _this.activeState = state; };
+        // eslint-disable-next-line
+        var this_ = this;
+        var checkpointRef = this.checkpointRef = firebaseRef.child('checkpoint');
+        var changesRef = this.changesRef = firebaseRef.child('changes');
+        var selectionsRef = this.selectionsRef = firebaseRef.child('selections');
+        var selfSelectionRef = this.selfSelectionRef = selectionsRef.child(selfClientID);
+        selfSelectionRef.onDisconnect().remove();
+        var selections = this.selections = {};
+        var selection;
+        var checkpointQuery = this.stateLimit >= 0 ? checkpointRef.orderByChild('k').endAt(currentState).limitToLast(1) : checkpointRef;
+        var constructEditor = checkpointQuery.once('value').then(function (snapshot) {
+            progress(1 / 2);
+            // eslint-disable-next-line prefer-const
+            var _a = snapshot.val() || {}, d = _a.d, _b = _a.k, latestKey = _b === void 0 ? -1 : _b;
+            latestKey = Number(latestKey);
+            if (latestKey >= 0)
+                setActiveState(latestKey);
+            stateConfig.doc = d && Node.fromJSON(stateConfig.schema, uncompressStateJSON({ d: d }).doc);
+            stateConfig.plugins = (stateConfig.plugins || [])
+                .concat(collab({ clientID: selfClientID }));
+            function compressedStepJSONToStep(compressedStepJSON) {
+                return Step.fromJSON(stateConfig.schema, uncompressStepJSON(compressedStepJSON));
+            }
+            function updateCollab(_a, newState) {
+                var docChanged = _a.docChanged, mapping = _a.mapping;
+                if (docChanged) {
+                    for (var clientID in selections) {
+                        if ({}.hasOwnProperty.call(selections, clientID)) {
+                            selections[clientID] = selections[clientID].map(newState.doc, mapping);
+                        }
+                    }
+                }
+                // stripped update functionality, only local changes
+                var selectionChanged = !newState.selection.eq(selection);
+                if (selectionChanged) {
+                    selection = newState.selection;
+                    //! selfSelectionRef.set(compressSelectionJSON(selection.toJSON()));
+                }
+            }
+            function queryBuilder(stateLimit) {
+                if (stateLimit > 0)
+                    return changesRef.startAt(null, String(latestKey + 1)).endAt(null, String(stateLimit));
+                return changesRef.startAt(null, String(latestKey + 1));
+            }
+            return queryBuilder(currentState).once('value').then(
+            // eslint-disable-next-line @typescript-eslint/no-shadow
+            function (snapshot) {
+                progress(2 / 2);
+                var view = this_.view = constructView({ stateConfig: stateConfig, updateCollab: updateCollab, selections: selections });
+                // This should not be here, it is probably a compatibility
+                // assignment.
+                var editor = view.editor || view;
+                var changes = snapshot.val();
+                if (changes) {
+                    var steps = [];
+                    var stepClientIDs = [];
+                    var placeholderClientId = "_oldClient".concat(Math.random());
+                    var keys = Object.keys(changes).map(Number);
+                    latestKey = Math.max.apply(Math, keys);
+                    if (latestKey >= 0)
+                        setActiveState(latestKey);
+                    for (var _i = 0, keys_2 = keys; _i < keys_2.length; _i++) {
+                        var key = keys_2[_i];
+                        var compressedStepsJSON = changes[key].s;
+                        steps.push.apply(steps, compressedStepsJSON.map(compressedStepJSONToStep));
+                        stepClientIDs.push.apply(stepClientIDs, new Array(compressedStepsJSON.length).fill(placeholderClientId));
+                    }
+                    editor.dispatch(receiveTransaction(editor.state, steps, stepClientIDs));
+                }
+                // This could once again be a compatibility detail.
+                // I will not proceed to fix this as it may break
+                // some things.
+                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                // @ts-ignore
+                return __assign({ destroy: this_.destroy.bind(this_) }, this_);
+            });
+        });
+        Object.defineProperties(this, {
+            then: { value: constructEditor.then.bind(constructEditor) },
+            catch: { value: constructEditor.catch.bind(constructEditor) },
+        });
+    };
+    StatePreviewEditor.prototype.currentlyUsedState = function () {
+        return this.activeState;
+    };
+    StatePreviewEditor.prototype.nextState = function () {
+        return this.activeState + 1;
+    };
+    StatePreviewEditor.prototype.previousState = function () {
+        var prev = this.activeState - 1;
+        return prev <= 0 ? 1 : prev; // there is no such thing as state 0.
+    };
+    StatePreviewEditor.prototype.incrementState = function (n) {
+        if (n === undefined)
+            return -1;
+        return this.activeState + n;
+    };
+    StatePreviewEditor.prototype.decrementState = function (n) {
+        if (n === undefined)
+            return -1;
+        var dec = this.activeState - n;
+        return dec <= 0 ? 1 : dec; // there is no such thing as state 0.
+    };
+    return StatePreviewEditor;
+}(FirebaseEditor));export{FirebaseEditor,StatePreviewEditor};//# sourceMappingURL=index.js.map

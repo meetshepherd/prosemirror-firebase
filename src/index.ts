@@ -57,6 +57,7 @@ interface ConstructorParameters {
   view: ViewConstructor;
   clientID?: string;
   progress?: ProgressFunction;
+  stateLimit?: number;
 }
 
 export class FirebaseEditor {
@@ -74,18 +75,22 @@ export class FirebaseEditor {
 
   view: any;
 
+  stateLimit: number;
+
   constructor({
     firebaseRef,
     stateConfig,
     view: constructView,
     clientID: selfClientID = firebaseRef.push().key!,
     progress = (level: number) => {},
+    stateLimit = -1,
   }: ConstructorParameters) {
-    this.selections = {} // Property 'selections' has no initializer and is not definitely assigned in the constructor.ts(2564)
+    this.stateLimit = stateLimit >= 0 ? stateLimit : -1;
+    this.selections = {}; // Property 'selections' has no initializer and is not definitely assigned in the constructor.ts(2564)
     this.construct(firebaseRef, stateConfig, constructView, selfClientID, progress);
   }
 
-  construct(firebaseRef: firebase.database.Reference, stateConfig: StateConfig, constructView: ViewConstructor, selfClientID ?: string, progress: ProgressFunction = (level: number) => {}) {
+  construct(firebaseRef: firebase.database.Reference, stateConfig: StateConfig, constructView: ViewConstructor, selfClientID: string, progress: ProgressFunction = (level: number) => {}) {
     progress(0 / 2);
     // eslint-disable-next-line
     const this_ = this;
@@ -261,13 +266,18 @@ export class FirebaseEditor {
   }
 }
 
-export class StatefulFirebaseEditor extends FirebaseEditor {
-  constructor(params: ConstructorParameters, stateIndex: number = -1) {
+export class StatePreviewEditor extends FirebaseEditor {
+  activeState: number;
+
+  constructor(params: ConstructorParameters) {
     super(params);
+    this.activeState = -1;
   }
 
-  construct(firebaseRef: firebase.database.Reference, stateConfig: StateConfig, constructView: ViewConstructor, selfClientID?: string, progress: ProgressFunction): void {
+  construct(firebaseRef: firebase.database.Reference, stateConfig: StateConfig, constructView: ViewConstructor, selfClientID: string, progress: ProgressFunction): void {
     progress(0 / 2);
+    const currentState = this.stateLimit;
+    const setActiveState = (state: number) => { this.activeState = state; };
     // eslint-disable-next-line
     const this_ = this;
     const checkpointRef = this.checkpointRef = firebaseRef.child('checkpoint');
@@ -283,12 +293,15 @@ export class StatefulFirebaseEditor extends FirebaseEditor {
     } = {};
     let selection: any;
 
-    const constructEditor = checkpointRef.once('value').then(
+    let checkpointQuery = this.stateLimit >= 0 ? checkpointRef.orderByChild('k').endAt(currentState).limitToLast(1) : checkpointRef;
+    const constructEditor = checkpointQuery.once('value').then(
       (snapshot) => {
         progress(1 / 2);
         // eslint-disable-next-line prefer-const
         let { d, k: latestKey = -1 } = snapshot.val() || {};
         latestKey = Number(latestKey);
+        if (latestKey >= 0)
+          setActiveState(latestKey);
         stateConfig.doc = d && Node.fromJSON(stateConfig.schema, uncompressStateJSON({ d }).doc);
         stateConfig.plugins = (stateConfig.plugins || [])
           .concat(collab({ clientID: selfClientID }));
@@ -305,46 +318,21 @@ export class StatefulFirebaseEditor extends FirebaseEditor {
               }
             }
           }
-
-          const sendable = sendableSteps(newState);
-          if (sendable) {
-            const { steps, clientID } = sendable;
-            changesRef.child(latestKey + 1).transaction(
-              // eslint-disable-next-line consistent-return
-              (existingBatchedSteps) => {
-                if (!existingBatchedSteps) {
-                  selfChanges[latestKey + 1] = steps;
-                  return {
-                    s: compressStepsLossy(steps).map(
-                      (step: Step) => compressStepJSON(step.toJSON()),
-                    ),
-                    c: clientID,
-                    t: TIMESTAMP,
-                  };
-                }
-              },
-              (error, committed, dataSnapshot) => {
-                const { key } = dataSnapshot || {};
-                if (error || !key) {
-                  console.error('updateCollab', error, sendable, key);
-                } else if (committed && Number(key) % 100 === 0 && Number(key) > 0) {
-                  // eslint-disable-next-line @typescript-eslint/no-shadow
-                  const { d } = compressStateJSON(newState.toJSON());
-                  checkpointRef.set({ d, k: key, t: TIMESTAMP });
-                }
-              },
-              false,
-            );
-          }
-
+          // stripped update functionality, only local changes
           const selectionChanged = !newState.selection.eq(selection);
           if (selectionChanged) {
             selection = newState.selection;
-            selfSelectionRef.set(compressSelectionJSON(selection.toJSON()));
+            //! selfSelectionRef.set(compressSelectionJSON(selection.toJSON()));
           }
         }
 
-        return changesRef.startAt(null, String(latestKey + 1)).once('value').then(
+        function queryBuilder(stateLimit: number) {
+          if (stateLimit > 0)
+            return changesRef.startAt(null, String(latestKey + 1)).endAt(null, String(stateLimit));
+          return changesRef.startAt(null, String(latestKey + 1))
+        }
+        
+        return queryBuilder(currentState).once('value').then(
           // eslint-disable-next-line @typescript-eslint/no-shadow
           (snapshot) => {
             progress(2 / 2);
@@ -360,6 +348,8 @@ export class StatefulFirebaseEditor extends FirebaseEditor {
               const placeholderClientId = `_oldClient${Math.random()}`;
               const keys = Object.keys(changes).map(Number);
               latestKey = Math.max(...keys);
+              if (latestKey >= 0)
+                setActiveState(latestKey);
               for (const key of keys) {
                 const compressedStepsJSON = changes[key].s;
                 steps.push(...compressedStepsJSON.map(compressedStepJSONToStep));
@@ -370,45 +360,6 @@ export class StatefulFirebaseEditor extends FirebaseEditor {
               editor.dispatch(receiveTransaction(editor.state, steps, stepClientIDs));
             }
 
-            // This is shadowed.
-            // eslint-disable-next-line @typescript-eslint/no-shadow
-            function updateClientSelection(snapshot: any) {
-              const clientID = snapshot.key;
-              if (clientID !== selfClientID) {
-                const compressedSelection = snapshot.val();
-                if (compressedSelection) {
-                  try {
-                    selections[clientID] = Selection.fromJSON(
-                      editor.state.doc, uncompressSelectionJSON(compressedSelection),
-                    );
-                  } catch (error) {
-                    console.warn('updateClientSelection', error);
-                  }
-                } else {
-                  delete selections[clientID];
-                }
-                editor.dispatch(editor.state.tr);
-              }
-            }
-            selectionsRef.on('child_added', updateClientSelection);
-            selectionsRef.on('child_changed', updateClientSelection);
-            selectionsRef.on('child_removed', updateClientSelection);
-
-            changesRef.startAt(null, String(latestKey + 1)).on(
-              'child_added',
-              // eslint-disable-next-line @typescript-eslint/no-shadow
-              (snapshot) => {
-                latestKey = Number(snapshot.key);
-                const { s: compressedStepsJSON, c: clientID } = snapshot.val();
-                const steps = (
-                  clientID === selfClientID
-                    ? selfChanges[latestKey]
-                    : compressedStepsJSON.map(compressedStepJSONToStep));
-                const stepClientIDs = new Array(steps.length).fill(clientID);
-                editor.dispatch(receiveTransaction(editor.state, steps, stepClientIDs));
-                delete selfChanges[latestKey];
-              },
-            );
             // This could once again be a compatibility detail.
             // I will not proceed to fix this as it may break
             // some things.
@@ -424,5 +375,31 @@ export class StatefulFirebaseEditor extends FirebaseEditor {
       then: { value: constructEditor.then.bind(constructEditor) },
       catch: { value: constructEditor.catch.bind(constructEditor) },
     });
+  }
+
+  currentlyUsedState() {
+    return this.activeState;
+  }
+
+  nextState() {
+    return this.activeState + 1;
+  }
+
+  previousState() {
+    const prev = this.activeState - 1;
+    return prev <= 0 ? 1 : prev; // there is no such thing as state 0.
+  }
+
+  incrementState(n: number | undefined) {
+    if (n === undefined)
+      return -1;
+    return this.activeState + n;
+  }
+
+  decrementState(n: number | undefined) {
+    if (n === undefined)
+      return -1;
+    const dec = this.activeState - n;
+    return dec <= 0 ? 1 : dec; // there is no such thing as state 0.
   }
 }

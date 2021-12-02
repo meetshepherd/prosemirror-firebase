@@ -20,16 +20,19 @@ interface StateConfig {
 interface UpdateCollab {
     (transaction: Transaction, newState: EditorState): any;
 }
+declare type ViewConstructor = (arg0: {
+    stateConfig: StateConfig;
+    updateCollab: UpdateCollab;
+    selections?: Record<string | number, Selection>;
+}) => EditorView;
+declare type ProgressFunction = (level: number) => any;
 interface ConstructorParameters {
     firebaseRef: firebase.database.Reference;
     stateConfig: StateConfig;
-    view: (arg0: {
-        stateConfig: StateConfig;
-        updateCollab: UpdateCollab;
-        selections?: Record<string | number, Selection>;
-    }) => EditorView;
+    view: ViewConstructor;
     clientID?: string;
-    progress?: (level: number) => any;
+    progress?: ProgressFunction;
+    stateLimit?: number;
 }
 export declare class FirebaseEditor {
     changesRef: any;
@@ -40,8 +43,20 @@ export declare class FirebaseEditor {
         [K: string]: Selection;
     };
     view: any;
-    constructor({ firebaseRef, stateConfig, view: constructView, clientID: selfClientID, progress, }: ConstructorParameters);
+    stateLimit: number;
+    constructor({ firebaseRef, stateConfig, view: constructView, clientID: selfClientID, progress, stateLimit, }: ConstructorParameters);
+    construct(firebaseRef: firebase.database.Reference, stateConfig: StateConfig, constructView: ViewConstructor, selfClientID: string, progress?: ProgressFunction): void;
     destroy(): Promise<void>;
     catch(): void;
+}
+export declare class StatePreviewEditor extends FirebaseEditor {
+    activeState: number;
+    constructor(params: ConstructorParameters);
+    construct(firebaseRef: firebase.database.Reference, stateConfig: StateConfig, constructView: ViewConstructor, selfClientID: string, progress: ProgressFunction): void;
+    currentlyUsedState(): number;
+    nextState(): number;
+    previousState(): number;
+    incrementState(n: number | undefined): number;
+    decrementState(n: number | undefined): number;
 }
 export {};
