@@ -46,6 +46,7 @@ export declare class FirebaseEditor {
     stateLimit: number;
     constructor({ firebaseRef, stateConfig, view: constructView, clientID: selfClientID, progress, stateLimit, }: ConstructorParameters);
     construct(firebaseRef: firebase.database.Reference, stateConfig: StateConfig, constructView: ViewConstructor, selfClientID: string, progress?: ProgressFunction): void;
+    defineAsync(constructEditor: any): void;
     destroy(): Promise<void>;
     catch(): void;
 }
@@ -53,10 +54,11 @@ export declare class StatePreviewEditor extends FirebaseEditor {
     activeState: number;
     constructor(params: ConstructorParameters);
     construct(firebaseRef: firebase.database.Reference, stateConfig: StateConfig, constructView: ViewConstructor, selfClientID: string, progress: ProgressFunction): void;
-    currentlyUsedState(): number;
-    nextState(): number;
-    previousState(): number;
-    incrementState(n: number | undefined): number;
-    decrementState(n: number | undefined): number;
+    defineAsync(constructEditor: any): void;
+    currentlyUsedState: () => number;
+    nextState: () => number;
+    previousState: () => number;
+    incrementState: (n: number | undefined) => number;
+    decrementState: (n: number | undefined) => number;
 }
 export {};

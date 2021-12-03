@@ -25,9 +25,11 @@
   "homepage": "https://github.com/meethshepherd/prosemirror-firebase#readme",
   "dependencies": {
     "prosemirror-compress": "0.0.2",
+    "tslib": "^2.3.1",
     "typescript": "^4.5.2"
   },
   "devDependencies": {
+    "firebase": "8.2.0",
     "@rollup/plugin-eslint": "^8.0.1",
     "@rollup/plugin-node-resolve": "^13.0.4",
     "@rollup/plugin-replace": "^3.0.0",

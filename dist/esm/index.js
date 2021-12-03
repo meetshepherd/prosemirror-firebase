@@ -17,11 +17,13 @@ PERFORMANCE OF THIS SOFTWARE.
 var extendStatics = function(d, b) {
     extendStatics = Object.setPrototypeOf ||
         ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
-        function (d, b) { for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p]; };
+        function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
     return extendStatics(d, b);
 };
 
 function __extends(d, b) {
+    if (typeof b !== "function" && b !== null)
+        throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
     extendStatics(d, b);
     function __() { this.constructor = d; }
     d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
@@ -222,6 +224,9 @@ var FirebaseEditor = /** @class */ (function () {
                 return __assign({ destroy: this_.destroy.bind(this_) }, this_);
             });
         });
+        this.defineAsync(constructEditor);
+    };
+    FirebaseEditor.prototype.defineAsync = function (constructEditor) {
         Object.defineProperties(this, {
             then: { value: constructEditor.then.bind(constructEditor) },
             catch: { value: constructEditor.catch.bind(constructEditor) },
@@ -252,6 +257,27 @@ var StatePreviewEditor = /** @class */ (function (_super) {
     __extends(StatePreviewEditor, _super);
     function StatePreviewEditor(params) {
         var _this = _super.call(this, params) || this;
+        _this.currentlyUsedState = function () {
+            return _this.activeState;
+        };
+        _this.nextState = function () {
+            return _this.activeState + 1;
+        };
+        _this.previousState = function () {
+            var prev = _this.activeState - 1;
+            return prev <= 0 ? 1 : prev; // there is no such thing as state 0.
+        };
+        _this.incrementState = function (n) {
+            if (n === undefined)
+                return _this.activeState;
+            return _this.activeState + n;
+        };
+        _this.decrementState = function (n) {
+            if (n === undefined)
+                return 1;
+            var dec = _this.activeState - n;
+            return dec <= 0 ? 1 : dec; // there is no such thing as state 0.
+        };
         _this.activeState = -1;
         return _this;
     }
@@ -337,31 +363,13 @@ var StatePreviewEditor = /** @class */ (function (_super) {
                 return __assign({ destroy: this_.destroy.bind(this_) }, this_);
             });
         });
+        this.defineAsync(constructEditor);
+    };
+    StatePreviewEditor.prototype.defineAsync = function (constructEditor) {
         Object.defineProperties(this, {
             then: { value: constructEditor.then.bind(constructEditor) },
             catch: { value: constructEditor.catch.bind(constructEditor) },
         });
-    };
-    StatePreviewEditor.prototype.currentlyUsedState = function () {
-        return this.activeState;
-    };
-    StatePreviewEditor.prototype.nextState = function () {
-        return this.activeState + 1;
-    };
-    StatePreviewEditor.prototype.previousState = function () {
-        var prev = this.activeState - 1;
-        return prev <= 0 ? 1 : prev; // there is no such thing as state 0.
-    };
-    StatePreviewEditor.prototype.incrementState = function (n) {
-        if (n === undefined)
-            return -1;
-        return this.activeState + n;
-    };
-    StatePreviewEditor.prototype.decrementState = function (n) {
-        if (n === undefined)
-            return -1;
-        var dec = this.activeState - n;
-        return dec <= 0 ? 1 : dec; // there is no such thing as state 0.
     };
     return StatePreviewEditor;
 }(FirebaseEditor));export{FirebaseEditor,StatePreviewEditor};//# sourceMappingURL=index.js.map

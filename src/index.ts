@@ -244,6 +244,10 @@ export class FirebaseEditor {
       },
     );
 
+    this.defineAsync(constructEditor);
+  }
+
+  defineAsync(constructEditor: any) {
     Object.defineProperties(this, {
       then: { value: constructEditor.then.bind(constructEditor) },
       catch: { value: constructEditor.catch.bind(constructEditor) },
@@ -371,34 +375,38 @@ export class StatePreviewEditor extends FirebaseEditor {
       },
     );
 
+    this.defineAsync(constructEditor);
+  }
+
+  defineAsync(constructEditor: any) {
     Object.defineProperties(this, {
       then: { value: constructEditor.then.bind(constructEditor) },
       catch: { value: constructEditor.catch.bind(constructEditor) },
     });
   }
 
-  currentlyUsedState() {
+  currentlyUsedState = (): number => {
     return this.activeState;
   }
 
-  nextState() {
+  nextState = (): number => {
     return this.activeState + 1;
   }
 
-  previousState() {
+  previousState = (): number => {
     const prev = this.activeState - 1;
     return prev <= 0 ? 1 : prev; // there is no such thing as state 0.
   }
 
-  incrementState(n: number | undefined) {
+  incrementState = (n: number | undefined): number => {
     if (n === undefined)
-      return -1;
+      return this.activeState;
     return this.activeState + n;
   }
 
-  decrementState(n: number | undefined) {
+  decrementState = (n: number | undefined): number => {
     if (n === undefined)
-      return -1;
+      return 1;
     const dec = this.activeState - n;
     return dec <= 0 ? 1 : dec; // there is no such thing as state 0.
   }
